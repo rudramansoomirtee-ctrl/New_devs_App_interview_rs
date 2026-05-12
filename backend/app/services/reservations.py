@@ -7,13 +7,34 @@ async def calculate_monthly_revenue(property_id: str, month: int, year: int, db_
     Calculates revenue for a specific month.
     """
 
-    start_date = datetime(year, month, 1)
-    if month < 12:
-        end_date = datetime(year, month + 1, 1)
+    import pytz
+    from sqlalchemy import text
+    
+    property_tz = 'UTC'
+    
+    if db_session:
+        tz_query = text("SELECT timezone FROM properties WHERE id = :property_id LIMIT 1")
+        result = await db_session.execute(tz_query, {"property_id": property_id})
+        row = result.fetchone()
+        if row and row.timezone:
+            property_tz = row.timezone
     else:
-        end_date = datetime(year + 1, 1, 1)
+        from app.core.database_pool import DatabasePool
+        db_pool = DatabasePool()
+        await db_pool.initialize()
+        if db_pool.session_factory:
+            async with db_pool.get_session() as session:
+                tz_query = text("SELECT timezone FROM properties WHERE id = :property_id LIMIT 1")
+                result = await session.execute(tz_query, {"property_id": property_id})
+                row = result.fetchone()
+                if row and row.timezone:
+                    property_tz = row.timezone
+
+    tz = pytz.timezone(property_tz)
+    start_utc = tz.localize(datetime(year, month, 1)).astimezone(pytz.UTC)
+    end_utc = tz.localize(datetime(year + (month == 12), (month % 12) + 1, 1)).astimezone(pytz.UTC)
         
-    print(f"DEBUG: Querying revenue for {property_id} from {start_date} to {end_date}")
+    print(f"DEBUG: Querying revenue for {property_id} from {start_utc} to {end_utc}")
 
     # SQL Simulation (This would be executed against the actual DB)
     query = """
@@ -26,7 +47,7 @@ async def calculate_monthly_revenue(property_id: str, month: int, year: int, db_
     """
     
     # In production this query executes against a database session.
-    # result = await db.fetch_val(query, property_id, tenant_id, start_date, end_date)
+    # result = await db.fetch_val(query, property_id, tenant_id, start_utc, end_utc)
     # return result or Decimal('0')
     
     return Decimal('0') # Placeholder for now until DB connection is finalized
